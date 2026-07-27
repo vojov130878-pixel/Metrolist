@@ -19,17 +19,20 @@ if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
 }
 
-val autoDebugDir = file("${System.getProperty("user.home")}/.android")
-val autoDebugFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+val keystorePath = "${System.getProperty("user.home")}/.android/debug.keystore"
+val autoDebugFile = file(keystorePath)
 
-// Создаем официальную задачу для генерации ключа
+// Чистая задача без ссылок на контекст Gradle (для Configuration Cache)
 val ensureDebugKeystore = tasks.register("ensureDebugKeystore") {
-    doFirst {
-        if (!autoDebugFile.exists()) {
-            autoDebugDir.mkdirs()
+    val path = keystorePath
+    outputs.file(path)
+    doLast {
+        val targetFile = java.io.File(path)
+        if (!targetFile.exists()) {
+            targetFile.parentFile.mkdirs()
             ProcessBuilder(
                 "keytool", "-genkeypair", "-v",
-                "-keystore", autoDebugFile.absolutePath,
+                "-keystore", targetFile.absolutePath,
                 "-storepass", "android",
                 "-alias", "androiddebugkey",
                 "-keypass", "android",
