@@ -13,28 +13,33 @@ import java.net.URL
 import java.util.Properties
 import javax.inject.Inject
 
-// === АВТОМАТИЧЕСКАЯ ГЕНЕРАЦИЯ КЛЮЧА ДЛЯ СЕРВЕРА GITHUB ===
-val autoDebugDir = file("${System.getProperty("user.home")}/.android")
-val autoDebugFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
-if (!autoDebugFile.exists()) {
-    autoDebugDir.mkdirs()
-    ProcessBuilder(
-        "keytool", "-genkeypair", "-v",
-        "-keystore", autoDebugFile.absolutePath,
-        "-storepass", "android",
-        "-alias", "androiddebugkey",
-        "-keypass", "android",
-        "-keyalg", "RSA",
-        "-keysize", "2048",
-        "-validity", "10000",
-        "-dname", "CN=Android Debug,O=Android,C=US"
-    ).start().waitFor()
-}
-
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
     localProperties.load(localPropertiesFile.inputStream())
+}
+
+val autoDebugDir = file("${System.getProperty("user.home")}/.android")
+val autoDebugFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+
+// Создаем официальную задачу для генерации ключа
+val ensureDebugKeystore = tasks.register("ensureDebugKeystore") {
+    doFirst {
+        if (!autoDebugFile.exists()) {
+            autoDebugDir.mkdirs()
+            ProcessBuilder(
+                "keytool", "-genkeypair", "-v",
+                "-keystore", autoDebugFile.absolutePath,
+                "-storepass", "android",
+                "-alias", "androiddebugkey",
+                "-keypass", "android",
+                "-keyalg", "RSA",
+                "-keysize", "2048",
+                "-validity", "10000",
+                "-dname", "CN=Android Debug,O=Android,C=US"
+            ).start().waitFor()
+        }
+    }
 }
 
 val baseApplicationId = "com.metrolist.music"
@@ -287,8 +292,9 @@ val generateProto = if (protoFile.exists()) {
 }
 
 tasks.configureEach {
-    if (name.startsWith("compile") || name.startsWith("assemble")) {
+    if (name.startsWith("compile") || name.startsWith("assemble") || name.contains("Signing") || name.contains("package")) {
         generateProto?.let { dependsOn(it) }
+        dependsOn(ensureDebugKeystore)
     }
 }
 
