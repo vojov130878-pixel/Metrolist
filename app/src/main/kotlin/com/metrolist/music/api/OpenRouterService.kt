@@ -49,13 +49,11 @@ object OpenRouterService {
 
             while (currentAttempt < maxRetries) {
                 try {
-                    // Use custom system prompt if provided, otherwise use the default
                     val systemPrompt =
                         if (customSystemPrompt.isNotBlank()) {
                             customSystemPrompt.replace("{lineCount}", lineCount.toString())
                         } else {
                             """You are a precise lyrics translation assistant. Your output must ALWAYS be a valid JSON array of strings.
-
 CRITICAL RULES:
 1. Output ONLY a JSON array: ["line1", "line2", "line3"]
 2. NO explanations, NO questions, NO additional text
@@ -68,55 +66,19 @@ CRITICAL RULES:
                     val userPrompt =
                         when (mode) {
                             "Romanized" -> {
-                                """Romanize/transliterate the following $lineCount lines into simple Latin script using ONLY basic English letters (a-z, A-Z).
-
-CRITICAL REQUIREMENTS:
-- Use ONLY simple ASCII characters (a-z, A-Z, 0-9, basic punctuation)
-- NO special characters like ā, ī, ū, ñ, ç, etc.
-- NO diacritics or accent marks
-- If text is already in Latin script, return it UNCHANGED
-- For non-Latin scripts (Hindi, Chinese, Japanese, Korean, Cyrillic, etc.), provide simple romanization
-- DO NOT translate meaning, only convert script to simple English letters
-- Keep all punctuation and formatting
-- Preserve line-by-line structure exactly
-
-Examples of correct simple romanization:
-- Sanskrit/Hindi "आ" → "aa" (not "ā")
-- Japanese "東京" → "toukyou" or "tokyo" (not "tōkyō")
-- Korean "서울" → "seoul" (not "sŏul")
-
+                                """Romanize/transliterate the following $lineCount lines into simple Latin script using ONLY basic English letters.
 Input ($lineCount lines):
 $text
-
-Output MUST be a JSON array with EXACTLY $lineCount strings using ONLY simple ASCII characters."""
+Output MUST be a JSON array with EXACTLY $lineCount strings."""
                             }
-
                             "Transcribed" -> {
                                 """Transcribe/transliterate the following $lineCount lines phonetically into $targetLanguage script.
-
-CRITICAL REQUIREMENTS:
-- Convert the SOUND/PRONUNCIATION of the original text into $targetLanguage script
-- DO NOT translate the meaning - only represent how the original words SOUND
-- Use the native script of $targetLanguage (e.g., Devanagari for Hindi, Hangul for Korean, etc.)
-- Preserve the original pronunciation as closely as possible in the target script
-- Keep punctuation and formatting
-- Preserve line-by-line structure exactly
-- If text is already in $targetLanguage script, return it UNCHANGED
-
-Examples:
-- Japanese "こんにちは" to Hindi → "कोन्निचिवा" (phonetic, not translation)
-- English "Hello" to Hindi → "हेलो" (phonetic)
-- Korean "안녕하세요" to Hindi → "अन्न्योंग हासेयो" (phonetic)
-
 Input ($lineCount lines):
 $text
-
 Output MUST be a JSON array with EXACTLY $lineCount strings in $targetLanguage script."""
                             }
-
                             else -> {
                                 """Translate the following $lineCount lines to $targetLanguage.
-
 IMPORTANT:
 - Provide natural, accurate translation
 - Maintain poetic flow and meaning
@@ -153,8 +115,9 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                                 put("model", model)
                             }
                             put("messages", messages)
-                            put("temperature", 0.3) // Lower temperature for more consistent output
-                            put("max_tokens", lineCount * 100) // Adequate tokens for translation
+                            // БРОНЕБОЙНЫЙ ФИКС: Если используешь свой креативный промт, ставим температуру 0.7, иначе стандартные 0.3
+                            put("temperature", if (customSystemPrompt.isNotBlank()) 0.7 else 0.3) 
+                            put("max_tokens", lineCount * 100)
                         }
 
                     val request =
@@ -175,7 +138,6 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful) {
-                        // Retry on server errors (5xx)
                         if (response.code >= 500) {
                             currentAttempt++
                             kotlinx.coroutines.delay(1000L * currentAttempt)
@@ -199,45 +161,34 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
 
                     val jsonResponse = JSONObject(responseBody)
                     val choices = jsonResponse.optJSONArray("choices")
+                    
                     if (choices != null && choices.length() > 0) {
                         val message = choices.getJSONObject(0).optJSONObject("message")
-                        var content = message?.optString("content")?.trim()
+                        val content = message?.optString("content")?.trim()
 
                         if (!content.isNullOrBlank()) {
-                            // Enhanced JSON extraction with multiple fallback strategies
                             var translatedLines: List<String>? = null
 
-                            // Strategy 1: Try direct JSON parsing
+                            // БРОНЕБОЙНАЯ ЗАЩИТА: Находим только массив и игнорируем любые текстовые вставки ИИ
                             try {
-                                val jsonArray = JSONArray(content)
-                                translatedLines = (0 until jsonArray.length()).map { jsonArray.optString(it) }
-                            } catch (e: Exception) {
-                                // Strategy 2: Extract JSON from markdown code blocks
-                                content = content.replace("```json", "").replace("```", "").trim()
+                                val startIdx = content.indexOf('[')
+                                val endIdx = content.lastIndexOf(']')
 
-                                try {
-                                    val jsonArray = JSONArray(content)
+                                if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
+                                    val jsonString = content.substring(startIdx, endIdx + 1)
+                                    val jsonArray = JSONArray(jsonString)
                                     translatedLines = (0 until jsonArray.length()).map { jsonArray.optString(it) }
-                                } catch (e2: Exception) {
-                                    // Strategy 3: Find first [ and last ]
-                                    val startIdx = content.indexOf('[')
-                                    val endIdx = content.lastIndexOf(']')
-
-                                    if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
-                                        val jsonString = content.substring(startIdx, endIdx + 1)
-                                        try {
-                                            val jsonArray = JSONArray(jsonString)
-                                            translatedLines = (0 until jsonArray.length()).map { jsonArray.optString(it) }
-                                        } catch (e3: Exception) {
-                                            // Strategy 4: Manual line-by-line parsing as last resort
-                                            translatedLines =
-                                                content
-                                                    .lines()
-                                                    .filter { it.trim().isNotEmpty() }
-                                                    .map { it.trim().removeSurrounding("\"").removeSurrounding("'") }
-                                        }
-                                    }
+                                } else {
+                                    // Если ИИ совсем сошел с ума и не поставил скобки, бьем вручную по строкам
+                                    translatedLines = content
+                                        .replace("```json", "")
+                                        .replace("```", "")
+                                        .lines()
+                                        .filter { it.trim().isNotBlank() }
+                                        .map { it.trim().removeSurrounding("\"").removeSurrounding("'").removeSuffix(",") }
                                 }
+                            } catch (e: Exception) {
+                                // Если парсинг упал, мы ничего не делаем - код пойдет на следующий retry (currentAttempt++)
                             }
 
                             if (translatedLines != null) {
@@ -245,10 +196,8 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                                 if (translatedLines.size == lineCount) {
                                     return@withContext Result.success(translatedLines)
                                 } else if (translatedLines.size > lineCount) {
-                                    // If we got more lines, take first N
                                     return@withContext Result.success(translatedLines.take(lineCount))
                                 } else {
-                                    // If we got fewer lines, pad with empty strings
                                     val paddedLines = translatedLines.toMutableList()
                                     while (paddedLines.size < lineCount) {
                                         paddedLines.add("")
