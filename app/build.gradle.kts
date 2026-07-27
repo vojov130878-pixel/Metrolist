@@ -1,6 +1,5 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
-
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
@@ -13,6 +12,24 @@ import java.net.URL
 import java.util.Properties
 import javax.inject.Inject
 
+// === АВТОМАТИЧЕСКАЯ ГЕНЕРАЦИЯ КЛЮЧА ДЛЯ СЕРВЕРА GITHUB ===
+val autoDebugDir = file("${System.getProperty("user.home")}/.android")
+val autoDebugFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+if (!autoDebugFile.exists()) {
+    autoDebugDir.mkdirs()
+    java.lang.ProcessBuilder(
+        "keytool", "-genkeypair", "-v",
+        "-keystore", autoDebugFile.absolutePath,
+        "-storepass", "android",
+        "-alias", "androiddebugkey",
+        "-keypass", "android",
+        "-keyalg", "RSA",
+        "-keysize", "2048",
+        "-validity", "10000",
+        "-dname", "CN=Android Debug,O=Android,C=US"
+    ).start().waitFor()
+}
+
 val localProperties = Properties()
 val localPropertiesFile = rootProject.file("local.properties")
 if (localPropertiesFile.exists()) {
@@ -22,12 +39,6 @@ if (localPropertiesFile.exists()) {
 val baseApplicationId = "com.metrolist.music"
 val applicationIdOverride = System.getenv("METROLIST_APPLICATION_ID")?.takeIf { it.isNotBlank() }
 val appNameOverride = System.getenv("METROLIST_APP_NAME")?.takeIf { it.isNotBlank() }
-val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
-val debugKeystorePassword = System.getenv("METROLIST_DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
-val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "androiddebugkey"
-val debugKeyPassword = System.getenv("METROLIST_DEBUG_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
-val persistentDebugKeystoreFile = file("dummy.keystore")
-val workflowDebugKeystoreFile = debugKeystorePathOverride?.let(::file)
 
 plugins {
     id("com.android.application")
@@ -112,7 +123,6 @@ android {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
 
-        // LastFM API keys from GitHub Secrets
         val lastFmKey = localProperties.getProperty("LASTFM_API_KEY") ?: System.getenv("LASTFM_API_KEY") ?: ""
         val lastFmSecret = localProperties.getProperty("LASTFM_SECRET") ?: System.getenv("LASTFM_SECRET") ?: ""
 
@@ -124,7 +134,6 @@ android {
 
     flavorDimensions += listOf("variant")
     productFlavors {
-        // FOSS - Updater, but no gcast
         create("foss") {
             dimension = "variant"
             isDefault = true
@@ -132,14 +141,12 @@ android {
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "true")
         }
 
-        // GMS - Updater and gcast
         create("gms") {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "true")
             buildConfigField("Boolean", "UPDATER_AVAILABLE", "true")
         }
 
-        // IzzyOnDroid - no gcast, no updater - the ONLY F-droid compliant build
         create("izzy") {
             dimension = "variant"
             buildConfigField("Boolean", "CAST_AVAILABLE", "false")
@@ -148,28 +155,11 @@ android {
     }
 
     signingConfigs {
-        create("persistentDebug") {
-            storeFile = persistentDebugKeystoreFile
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
-        }
-        create("workflowDebug") {
-            storeFile = workflowDebugKeystoreFile ?: persistentDebugKeystoreFile
-            storePassword = debugKeystorePassword
-            keyAlias = debugKeyAlias
-            keyPassword = debugKeyPassword
-        }
-        create("release") {
-            storeFile = file("keystore/release.keystore")
-            storePassword = System.getenv("STORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
-        }
         getByName("debug") {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
             storePassword = "android"
+            storeFile = autoDebugFile
         }
     }
 
@@ -192,14 +182,7 @@ android {
             if (appNameOverride == null) {
                 resValue("string", "app_name", "Metrolist Debug")
             }
-            signingConfig =
-                if (workflowDebugKeystoreFile != null) {
-                    signingConfigs.getByName("workflowDebug")
-                } else if (persistentDebugKeystoreFile.exists()) {
-                    signingConfigs.getByName("persistentDebug")
-                } else {
-                    signingConfigs.getByName("debug")
-                }
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
@@ -321,12 +304,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     }
 }
 
-// Android provides org.json as a platform API (/apex/com.android.art/javalib/core-libart.jar).
-// The standalone org.json:json artefact bundles an older Apache Harmony copy of JSONArray that
-// contains an internal `myArrayList` field absent from the platform class.  Without obfuscation
-// R8 inlines against this internal field; at runtime the platform class is resolved instead,
-// producing a NoSuchFieldError.  Excluding the artefact globally ensures only the platform
-// class is ever referenced.
 configurations.configureEach {
     exclude(group = "org.json", module = "json")
 }
@@ -370,7 +347,6 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.okhttp)
 
-    // Google Cast - only included in GMS flavor (not available in F-Droid/FOSS builds)
     "gmsImplementation"(libs.media3.cast)
     "gmsImplementation"(libs.mediarouter)
     "gmsImplementation"(libs.cast.framework)
@@ -401,7 +377,6 @@ dependencies {
     implementation(libs.ktor.client.encoding)
     implementation(libs.ktor.serialization.json)
 
-    // Protobuf for message serialization (lite version for Android)
     implementation(libs.protobuf.javalite)
     implementation(libs.protobuf.kotlin.lite)
 
