@@ -181,7 +181,7 @@ object LyricsTranslationHelper {
         provider: String = "OpenRouter",
         deeplApiKey: String = "",
         deeplFormality: String = "default",
-        useStreaming: Boolean = true,
+        useStreaming: Boolean = false,
         songId: String = "",
         database: MusicDatabase? = null,
         systemPrompt: String = "",
