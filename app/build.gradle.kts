@@ -8,6 +8,7 @@ import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
 import java.net.URL
 import java.util.Properties
 import javax.inject.Inject
@@ -17,7 +18,7 @@ val autoDebugDir = file("${System.getProperty("user.home")}/.android")
 val autoDebugFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
 if (!autoDebugFile.exists()) {
     autoDebugDir.mkdirs()
-    java.lang.ProcessBuilder(
+    ProcessBuilder(
         "keytool", "-genkeypair", "-v",
         "-keystore", autoDebugFile.absolutePath,
         "-storepass", "android",
@@ -76,7 +77,7 @@ abstract class GenerateProtoTask : DefaultTask() {
             val url = protocUrl.get()
             logger.lifecycle("Downloading protoc ${url.substringAfterLast('/')} from $url")
             protocFile.parentFile.mkdirs()
-            val connection = URL(url).openConnection() as java.net.HttpURLConnection
+            val connection = URI.create(url).toURL().openConnection() as java.net.HttpURLConnection
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
@@ -258,7 +259,7 @@ fun getProtocUrl(): String {
         arch.contains("x86_64") || arch.contains("amd64") -> "x86_64"
         arch.contains("aarch64") || arch.contains("arm64") -> "aarch_64"
         arch.contains("x86") -> "x86_32"
-        else -> "x86_64"
+        else -> "x86_32"
     }
 
     return "https://repo1.maven.org/maven2/com/google/protobuf/protoc/$protocVersion/protoc-$protocVersion-$osName-$archName.exe"
@@ -269,7 +270,7 @@ val protoFile = protoDir.resolve("listentogether.proto")
 
 val generateProto = if (protoFile.exists()) {
     val protocUrl = getProtocUrl()
-    val protocFileName = URL(protocUrl).path.substringAfterLast('/')
+    val protocFileName = URI.create(protocUrl).toURL().path.substringAfterLast('/')
 
     tasks.register<GenerateProtoTask>("generateProto") {
         group = "build"
