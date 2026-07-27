@@ -39,7 +39,6 @@ object OpenRouterService {
         withContext(Dispatchers.IO) {
             var currentAttempt = 0
 
-            // Validate input
             if (text.isBlank()) {
                 return@withContext Result.failure(Exception("Input text is empty"))
             }
@@ -109,14 +108,15 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                             )
                         }
 
+                    val customTemp = if (customSystemPrompt.isNotBlank()) 0.7 else 0.3
+
                     val jsonBody =
                         JSONObject().apply {
                             if (model.isNotBlank()) {
                                 put("model", model)
                             }
                             put("messages", messages)
-                            // БРОНЕБОЙНЫЙ ФИКС: Если используешь свой креативный промт, ставим температуру 0.7, иначе стандартные 0.3
-                            put("temperature", if (customSystemPrompt.isNotBlank()) 0.7 else 0.3) 
+                            put("temperature", customTemp)
                             put("max_tokens", lineCount * 100)
                         }
 
@@ -169,7 +169,6 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                         if (!content.isNullOrBlank()) {
                             var translatedLines: List<String>? = null
 
-                            // БРОНЕБОЙНАЯ ЗАЩИТА: Находим только массив и игнорируем любые текстовые вставки ИИ
                             try {
                                 val startIdx = content.indexOf('[')
                                 val endIdx = content.lastIndexOf(']')
@@ -179,20 +178,23 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                                     val jsonArray = JSONArray(jsonString)
                                     translatedLines = (0 until jsonArray.length()).map { jsonArray.optString(it) }
                                 } else {
-                                    // Если ИИ совсем сошел с ума и не поставил скобки, бьем вручную по строкам
                                     translatedLines = content
                                         .replace("```json", "")
                                         .replace("```", "")
                                         .lines()
                                         .filter { it.trim().isNotBlank() }
-                                        .map { it.trim().removeSurrounding("\"").removeSurrounding("'").removeSuffix(",") }
+                                        .map { 
+                                            it.trim()
+                                              .removeSurrounding("\"")
+                                              .removeSurrounding("'")
+                                              .removeSuffix(",") 
+                                        }
                                 }
                             } catch (e: Exception) {
-                                // Если парсинг упал, мы ничего не делаем - код пойдет на следующий retry (currentAttempt++)
+                                // Ignore parsing error
                             }
 
                             if (translatedLines != null) {
-                                // Validate line count matches
                                 if (translatedLines.size == lineCount) {
                                     return@withContext Result.success(translatedLines)
                                 } else if (translatedLines.size > lineCount) {
