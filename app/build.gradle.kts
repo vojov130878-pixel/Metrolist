@@ -26,7 +26,7 @@ val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.
 val debugKeystorePassword = System.getenv("METROLIST_DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
 val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "androiddebugkey"
 val debugKeyPassword = System.getenv("METROLIST_DEBUG_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
-val persistentDebugKeystoreFile = file("persistent-debug.keystore")
+val persistentDebugKeystoreFile = file("dummy.keystore")
 val workflowDebugKeystoreFile = debugKeystorePathOverride?.let(::file)
 
 plugins {
