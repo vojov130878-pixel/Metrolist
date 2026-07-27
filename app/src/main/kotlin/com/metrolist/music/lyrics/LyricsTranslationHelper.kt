@@ -181,7 +181,7 @@ object LyricsTranslationHelper {
         provider: String = "OpenRouter",
         deeplApiKey: String = "",
         deeplFormality: String = "default",
-        useStreaming: Boolean = false,
+        useStreaming: Boolean = true,
         songId: String = "",
         database: MusicDatabase? = null,
         systemPrompt: String = "",
@@ -300,69 +300,9 @@ object LyricsTranslationHelper {
                                 mode = mode,
                                 customSystemPrompt = systemPrompt,
                             )
-                        } else if (useStreaming && provider != "Custom") {
-                            Timber.d("Using streaming for translation with provider: $provider")
-                            // Use streaming for supported providers
-                            var translatedLines: List<String>? = null
-                            var hasError = false
-                            var errorMessage = ""
-                            val contentAccumulator = StringBuilder()
-
-                            OpenRouterStreamingService
-                                .streamTranslation(
-                                    text = fullText,
-                                    targetLanguage = fullLanguageName,
-                                    apiKey = apiKey,
-                                    baseUrl = baseUrl,
-                                    model = model,
-                                    mode = mode,
-                                    customSystemPrompt = systemPrompt,
-                                ).collect { chunk ->
-                                    Timber.v("Received streaming chunk: $chunk")
-                                    when (chunk) {
-                                        is OpenRouterStreamingService.StreamChunk.Content -> {
-                                            // Accumulate content for progressive parsing
-                                            contentAccumulator.append(chunk.text)
-
-                                            // Try to parse partial content and update UI progressively
-                                            val partialContent = contentAccumulator.toString()
-                                            val partialResult = tryParsePartialTranslation(partialContent, nonEmptyEntries.size)
-                                            if (partialResult.isNotEmpty()) {
-                                                // Update lyrics with partial translations as they become available
-                                                partialResult.forEachIndexed { idx, translation ->
-                                                    if (idx < nonEmptyEntries.size && translation.isNotBlank()) {
-                                                        val originalIndex = nonEmptyEntries[idx].first
-                                                        lyrics[originalIndex].translatedTextFlow.value = translation
-                                                    }
-                                                }
-                                                _status.value = TranslationStatus.Translating
-                                            }
-                                        }
-
-                                        is OpenRouterStreamingService.StreamChunk.Complete -> {
-                                            Timber.d("Streaming complete with ${chunk.translatedLines.size} lines")
-                                            translatedLines = chunk.translatedLines
-                                        }
-
-                                        is OpenRouterStreamingService.StreamChunk.Error -> {
-                                            Timber.e("Streaming error: ${chunk.message}")
-                                            hasError = true
-                                            errorMessage = chunk.message
-                                        }
-                                    }
-                                }
-
-                            Timber.d("Streaming collection complete. hasError=$hasError, translatedLines=${translatedLines?.size}")
-                            if (hasError) {
-                                Result.failure(Exception(errorMessage))
-                            } else if (translatedLines != null) {
-                                Result.success(translatedLines)
-                            } else {
-                                Result.failure(Exception("No translation received"))
-                            }
                         } else {
-                            Timber.d("Using non-streaming for translation")
-                            // Use non-streaming for Custom provider or when streaming is disabled
+                            Timber.d("Using non-streaming OpenRouter for translation")
+                            // Принудительно отключаем стриминг и используем наш защищенный OpenRouterService
                             OpenRouterService.translate(
                                 text = fullText,
                                 targetLanguage = fullLanguageName,
