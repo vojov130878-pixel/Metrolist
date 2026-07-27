@@ -8,6 +8,8 @@ import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.TaskAction
 import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
+import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
 import java.util.Properties
@@ -22,12 +24,12 @@ if (localPropertiesFile.exists()) {
 val keystorePath = "${System.getProperty("user.home")}/.android/debug.keystore"
 val autoDebugFile = file(keystorePath)
 
-// Чистая задача без ссылок на контекст Gradle (для Configuration Cache)
+// Чистая задача генерации ключа без скрытых ссылок на контекст
 val ensureDebugKeystore = tasks.register("ensureDebugKeystore") {
     val path = keystorePath
     outputs.file(path)
     doLast {
-        val targetFile = java.io.File(path)
+        val targetFile = File(path)
         if (!targetFile.exists()) {
             targetFile.parentFile.mkdirs()
             ProcessBuilder(
@@ -85,7 +87,7 @@ abstract class GenerateProtoTask : DefaultTask() {
             val url = protocUrl.get()
             logger.lifecycle("Downloading protoc ${url.substringAfterLast('/')} from $url")
             protocFile.parentFile.mkdirs()
-            val connection = URI.create(url).toURL().openConnection() as java.net.HttpURLConnection
+            val connection = URI.create(url).toURL().openConnection() as HttpURLConnection
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             val responseCode = connection.responseCode
             if (responseCode !in 200..299) {
