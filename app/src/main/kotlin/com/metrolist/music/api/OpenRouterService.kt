@@ -169,42 +169,46 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
                         if (!content.isNullOrBlank()) {
                             var translatedLines: List<String>? = null
 
-                            try {
-                                val startIdx = content.indexOf('[')
-                                val endIdx = content.lastIndexOf(']')
+                            // ПОПЫТКА 1: Пробуем распарсить как строгий JSON
+                            val startIdx = content.indexOf('[')
+                            val endIdx = content.lastIndexOf(']')
 
-                                if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
+                            if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
+                                try {
                                     val jsonString = content.substring(startIdx, endIdx + 1)
                                     val jsonArray = JSONArray(jsonString)
                                     translatedLines = (0 until jsonArray.length()).map { jsonArray.optString(it) }
-                                } else {
-                                    translatedLines = content
-                                        .replace("```json", "")
-                                        .replace("```", "")
-                                        .lines()
-                                        .filter { it.trim().isNotBlank() }
-                                        .map { 
-                                            it.trim()
-                                              .removeSurrounding("\"")
-                                              .removeSurrounding("'")
-                                              .removeSuffix(",") 
-                                        }
+                                } catch (e: Exception) {
+                                    // Если JSON был битым из-за внутренних кавычек, выходим в Попытку 2
                                 }
-                            } catch (e: Exception) {
-                                // Ignore parsing error
                             }
 
-                            if (translatedLines != null) {
-                                if (translatedLines.size == lineCount) {
-                                    return@withContext Result.success(translatedLines)
-                                } else if (translatedLines.size > lineCount) {
-                                    return@withContext Result.success(translatedLines.take(lineCount))
+                            // ПОПЫТКА 2: Разбор по строкам напрямую
+                            if (translatedLines == null) {
+                                translatedLines = content
+                                    .replace("```json", "")
+                                    .replace("```", "")
+                                    .replace("[", "")
+                                    .replace("]", "")
+                                    .lines()
+                                    .map { 
+                                        it.trim()
+                                          .removeSurrounding("\"")
+                                          .removeSurrounding("'")
+                                          .removeSuffix(",") 
+                                    }
+                                    .filter { it.isNotBlank() }
+                            }
+
+                            if (translatedLines.isNotEmpty()) {
+                                return@withContext if (translatedLines.size >= lineCount) {
+                                    Result.success(translatedLines.take(lineCount))
                                 } else {
                                     val paddedLines = translatedLines.toMutableList()
                                     while (paddedLines.size < lineCount) {
                                         paddedLines.add("")
                                     }
-                                    return@withContext Result.success(paddedLines)
+                                    Result.success(paddedLines)
                                 }
                             }
                         }
